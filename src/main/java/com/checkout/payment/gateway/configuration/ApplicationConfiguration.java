@@ -17,3 +17,11 @@ public class ApplicationConfiguration {
         .build();
   }
 }
+
+
+
+//@Bean
+//  public RestTemplate restTemplate() {
+//    return new RestTemplate();
+//  }
+
