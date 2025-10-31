@@ -17,11 +17,13 @@ public class PostPaymentRequest implements Serializable {
   @JsonProperty("cvv")
   private int cvv;
   @JsonProperty("card_number")
-  private String cardNumber;
+  private String card_number;
+  @JsonProperty("expiry_date")
+  private String expiry_date;
 
 
-  public String getCardNumber() { return cardNumber; }
-  public void setCardNumber(String cardNumber) { this.cardNumber = cardNumber; }
+  public String getCardNumber() { return card_number; }
+  public void setCardNumber(String cardNumber) { this.card_number = cardNumber; }
 
   public int getExpiryMonth() {
     return expiryMonth;
@@ -74,6 +76,7 @@ public class PostPaymentRequest implements Serializable {
       String[] parts = expiryDate.split("/");
       if(parts.length == 2) {
         try {
+          this.expiry_date = expiryDate;
           this.expiryMonth = Integer.parseInt(parts[0]);
           this.expiryYear = Integer.parseInt(parts[1]);
         } catch (NumberFormatException e) {
@@ -89,7 +92,7 @@ public class PostPaymentRequest implements Serializable {
   @Override
   public String toString() {
     return "PostPaymentRequest{" +
-        "cardNumber=" + cardNumber +
+        "cardNumber=" + card_number +
         ", expiryMonth=" + expiryMonth +
         ", expiryYear=" + expiryYear +
         ", currency='" + currency + '\'' +

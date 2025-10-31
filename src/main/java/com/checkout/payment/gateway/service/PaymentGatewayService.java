@@ -5,6 +5,9 @@ import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.PostPaymentRequest;
 import com.checkout.payment.gateway.model.PostPaymentResponse;
 import com.checkout.payment.gateway.repository.PaymentsRepository;
+import java.time.Year;
+import java.time.YearMonth;
+import java.util.Set;
 import java.util.UUID;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
@@ -12,10 +15,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 
 @Service
 public class PaymentGatewayService {
@@ -41,13 +40,13 @@ public class PaymentGatewayService {
   public PostPaymentResponse processPayment(PostPaymentRequest paymentRequest) {
     LOG.debug("Processing payment request");
     
-    // Step 1: Validate the payment request
+    // Validate the payment request
     validatePaymentRequest(paymentRequest);
     
-    // Step 2: Call the acquiring bank
+    // Call the acquiring bank
     BankResponse bankResponse = callAcquiringBank(paymentRequest);
     
-    // Step 3: Create payment response
+    // Create payment response
     PostPaymentResponse paymentResponse = new PostPaymentResponse();
     paymentResponse.setId(UUID.randomUUID());
     paymentResponse.setStatus(bankResponse.isAuthorized() ? PaymentStatus.AUTHORIZED : PaymentStatus.DECLINED);
@@ -57,7 +56,7 @@ public class PaymentGatewayService {
     paymentResponse.setCurrency(paymentRequest.getCurrency());
     paymentResponse.setAmount(paymentRequest.getAmount());
     
-    // Step 4: Store the payment
+    // Store the payment
     paymentsRepository.add(paymentResponse);
     
     LOG.info("Payment processed with ID: {} and status: {}", paymentResponse.getId(), paymentResponse.getStatus());
@@ -66,56 +65,74 @@ public class PaymentGatewayService {
   }
 
   private void validatePaymentRequest(PostPaymentRequest request) {
+    // Card number validation
     if (request.getCardNumber() == null || request.getCardNumber().isEmpty()) {
       throw new EventProcessingException("Card number is required");
     }
-
-    if (!request.getCardNumber().matches("\\d{14,19}")) {
-      throw new EventProcessingException("Card number must be between 14 and 19 digits");
+    
+    if (request.getCardNumber().length() < 14 || request.getCardNumber().length() > 19) {
+      throw new EventProcessingException("Card number must be between 14 and 19 characters long");
+    }
+    
+    if (!request.getCardNumber().matches("\\d+")) {
+      throw new EventProcessingException("Card number must only contain numeric characters");
     }
 
+    // Expiry month validation
     if (request.getExpiryMonth() < 1 || request.getExpiryMonth() > 12) {
       throw new EventProcessingException("Expiry month must be between 1 and 12");
     }
-
-    if (request.getExpiryYear() < 2024) {
-      throw new EventProcessingException("Card has expired");
+    
+    // Expiry year validation - must be in the future
+    int currentYear = Year.now().getValue();
+    int currentMonth = YearMonth.now().getMonthValue();
+    
+    if (request.getExpiryYear() < currentYear) {
+      throw new EventProcessingException("Expiry year must be in the future");
     }
-
+    
+    // Validate that the combination of expiry month + year is in the future
+    if (request.getExpiryYear() == currentYear && request.getExpiryMonth() < currentMonth) {
+      throw new EventProcessingException("Card has expired - expiry date must be in the future");
+    }
+    
+    // Currency validation
     if (request.getCurrency() == null || request.getCurrency().isEmpty()) {
       throw new EventProcessingException("Currency is required");
     }
-
-    if (!request.getCurrency().matches("[A-Z]{3}")) {
-      throw new EventProcessingException("Currency must be a 3-letter code");
+    
+    if (request.getCurrency().length() != 3) {
+      throw new EventProcessingException("Currency must be 3 characters");
     }
-
+    
+    // Validate against a whitelist of ISO currency codes (limiting to 3 as per requirement)
+    Set<String> allowedCurrencies = Set.of("GBP", "EUR", "USD");
+    if (!allowedCurrencies.contains(request.getCurrency().toUpperCase())) {
+      throw new EventProcessingException("Currency must be one of: USD, EUR, GBP");
+    }
+    
+    // Amount validation
     if (request.getAmount() <= 0) {
       throw new EventProcessingException("Amount must be greater than zero");
     }
-
-
-    // CVV validation for int type
+    
+    // CVV validation
     String cvvStr = String.valueOf(request.getCvv());
     if (cvvStr.length() < 3 || cvvStr.length() > 4) {
-      throw new EventProcessingException("CVV must be 3 or 4 digits");
+      throw new EventProcessingException("CVV must be 3-4 characters long");
+    }
+    
+    if (!cvvStr.matches("\\d+")) {
+      throw new EventProcessingException("CVV must only contain numeric characters");
     }
   }
   
   private BankResponse callAcquiringBank(PostPaymentRequest request) {
     try {
-      // Prepare bank request
-      BankRequest bankRequest = new BankRequest();
-      bankRequest.setCardNumber(request.getCardNumber());
-      bankRequest.setExpiryDate(String.format("%02d/%d", request.getExpiryMonth(), request.getExpiryYear()));
-      bankRequest.setCurrency(request.getCurrency());
-      bankRequest.setAmount(request.getAmount());
-      bankRequest.setCvv(String.valueOf(request.getCvv()));
-      
       // Call the bank simulator
 
       String bankUrl = bankSimulatorUrl + "/payments";
-      BankResponse response = restTemplate.postForObject(bankUrl, bankRequest, BankResponse.class);
+      BankResponse response = restTemplate.postForObject(bankUrl, request, BankResponse.class);
       
       LOG.debug("Bank response: {}", response);
       return response;
@@ -132,32 +149,7 @@ public class PaymentGatewayService {
     }
     return Integer.parseInt(cardNumber.substring(cardNumber.length() - 4));
   }
-  
-  // Inner classes for bank communication
-  private static class BankRequest {
-    @JsonProperty("card_number")
-    private String card_number;
-    @JsonProperty("expiry_date")
-    private String expiry_date;
-    @JsonProperty("currency")
-    private String currency;
-    @JsonProperty("amount")
-    private int amount;
-    @JsonProperty("cvv")
-    private String cvv;
-    
-    // Getters and setters
-    public String getCardNumber() { return card_number; }
-    public void setCardNumber(String cardNumber) { this.card_number = cardNumber; }
-    public String getExpiryDate() { return expiry_date; }
-    public void setExpiryDate(String expiryDate) { this.expiry_date = expiryDate; }
-    public String getCurrency() { return currency; }
-    public void setCurrency(String currency) { this.currency = currency; }
-    public int getAmount() { return amount; }
-    public void setAmount(int amount) { this.amount = amount; }
-    public String getCvv() { return cvv; }
-    public void setCvv(String cvv) { this.cvv = cvv; }
-  }
+
   
   private static class BankResponse {
     @JsonProperty("authorized")
