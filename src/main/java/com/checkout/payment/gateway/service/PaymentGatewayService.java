@@ -143,11 +143,11 @@ public class PaymentGatewayService {
     }
   }
   
-  private int getLastFourDigits(String cardNumber) {
+  private String getLastFourDigits(String cardNumber) {
     if (cardNumber == null || cardNumber.length() < 4) {
-      return 0;
+      return "";
     }
-    return Integer.parseInt(cardNumber.substring(cardNumber.length() - 4));
+    return cardNumber.substring(cardNumber.length() - 4);
   }
 
   
